@@ -3,6 +3,8 @@ import { connectDB } from '@/lib/db/mongodb';
 import Agent from '@/lib/models/Agent';
 import Game from '@/lib/models/Game';
 
+export const dynamic = 'force-dynamic';
+
 type Overview = {
   totalAgents: number;
   agentsPlayed: number;
