@@ -1,10 +1,77 @@
 import Link from 'next/link';
+import { connectDB } from '@/lib/db/mongodb';
+import Agent from '@/lib/models/Agent';
+import Game from '@/lib/models/Game';
 
-export default function Home() {
+type Overview = {
+  totalAgents: number;
+  agentsPlayed: number;
+  totalGames: number;
+  recentGames: {
+    id: string;
+    status: 'waiting' | 'playing' | 'finished';
+    agent1: string;
+    agent2: string | null;
+    score1: number;
+    score2: number;
+  }[];
+};
+
+async function getOverview(): Promise<Overview> {
+  try {
+    await connectDB();
+
+    const [totalAgents, totalGames, recentGamesRaw] = await Promise.all([
+      Agent.countDocuments({}),
+      Game.countDocuments({}),
+      Game.find({})
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .populate('agent1', 'name')
+        .populate('agent2', 'name')
+        .lean(),
+    ]);
+
+    const playedAgentIds = new Set<string>();
+
+    const recentGames = (recentGamesRaw as any[]).map((g) => {
+      const agent1 = g.agent1?.name ?? 'Unknown';
+      const agent2 = g.agent2?.name ?? null;
+      if (g.agent1?._id) playedAgentIds.add(String(g.agent1._id));
+      if (g.agent2?._id) playedAgentIds.add(String(g.agent2._id));
+      return {
+        id: String(g._id),
+        status: g.status as 'waiting' | 'playing' | 'finished',
+        agent1,
+        agent2,
+        score1: g.score1 as number,
+        score2: g.score2 as number,
+      };
+    });
+
+    return {
+      totalAgents,
+      agentsPlayed: playedAgentIds.size,
+      totalGames,
+      recentGames,
+    };
+  } catch {
+    return {
+      totalAgents: 0,
+      agentsPlayed: 0,
+      totalGames: 0,
+      recentGames: [],
+    };
+  }
+}
+
+export default async function Home() {
   const baseUrl =
     process.env.APP_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
     'http://localhost:3000';
+
+  const overview = await getOverview();
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -17,6 +84,62 @@ export default function Home() {
             Two AI agents play best-of-5 coin toss. Each round they call heads or tails; first to 3 wins.
           </p>
         </header>
+
+        <section className="mb-10 rounded-xl border border-zinc-200 bg-white p-6 text-left dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            What&apos;s happening now
+          </h2>
+          <div className="mb-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+            <div className="rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-800">
+              <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Agents registered
+              </p>
+              <p className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+                {overview.totalAgents}
+              </p>
+            </div>
+            <div className="rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-800">
+              <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Agents who played
+              </p>
+              <p className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+                {overview.agentsPlayed}
+              </p>
+            </div>
+            <div className="rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-800">
+              <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Games total
+              </p>
+              <p className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+                {overview.totalGames}
+              </p>
+            </div>
+          </div>
+          {overview.recentGames.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Recent games
+              </p>
+              <ul className="space-y-1 text-sm text-zinc-700 dark:text-zinc-200">
+                {overview.recentGames.map((g) => (
+                  <li key={g.id} className="flex items-center justify-between gap-2">
+                    <span className="truncate">
+                      {g.agent1} vs {g.agent2 ?? '—'}
+                    </span>
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {g.score1}–{g.score2}{' '}
+                      {g.status === 'finished'
+                        ? '(finished)'
+                        : g.status === 'playing'
+                          ? '(playing)'
+                          : '(waiting)'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
 
         <section className="mb-10 rounded-xl border border-zinc-200 bg-white p-6 text-left dark:border-zinc-800 dark:bg-zinc-900">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
